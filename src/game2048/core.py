@@ -1,0 +1,144 @@
+"""Pure 2048 board rules.
+
+This module avoids input, output, and randomness so it can be tested directly
+and reused by both a human interface and an AI agent.
+"""
+
+from __future__ import annotations
+
+from game2048.constants import (
+    ACTION_DOWN,
+    ACTION_LEFT,
+    ACTION_RIGHT,
+    ACTION_UP,
+    ACTIONS,
+)
+
+Board = list[list[int]]
+
+
+def clone_board(board: Board) -> Board:
+    """Return a copy of a board so callers cannot mutate internal state."""
+    return [row[:] for row in board]
+
+
+def empty_board(size: int = 4) -> Board:
+    return [[0 for _ in range(size)] for _ in range(size)]
+
+
+def validate_board(board: Board) -> None:
+    if not board:
+        raise ValueError("Board must not be empty.")
+
+    size = len(board)
+    for row in board:
+        if len(row) != size:
+            raise ValueError("Board must be square.")
+        if any(value < 0 for value in row):
+            raise ValueError("Board values must be non-negative.")
+
+
+def validate_action(action: int) -> None:
+    if action not in ACTIONS:
+        raise ValueError(f"Invalid action: {action}.")
+
+
+def slide_and_merge_row_left(row: list[int]) -> tuple[list[int], int]:
+    """Slide one row left and merge equal adjacent tiles once per move."""
+    tiles = [value for value in row if value != 0]
+    merged: list[int] = []
+    score_gain = 0
+    index = 0
+
+    while index < len(tiles):
+        current = tiles[index]
+        next_index = index + 1
+
+        if next_index < len(tiles) and current == tiles[next_index]:
+            merged_value = current * 2
+            merged.append(merged_value)
+            score_gain += merged_value
+            index += 2
+        else:
+            merged.append(current)
+            index += 1
+
+    merged.extend([0] * (len(row) - len(merged)))
+    return merged, score_gain
+
+
+def move_board(board: Board, action: int) -> tuple[Board, int, bool]:
+    """Return the board after an action, the score gained, and change status."""
+    validate_board(board)
+    validate_action(action)
+
+    if action == ACTION_LEFT:
+        moved_board, score_gain = _move_left(board)
+    elif action == ACTION_RIGHT:
+        reversed_board = _reverse_rows(board)
+        moved_reversed_board, score_gain = _move_left(reversed_board)
+        moved_board = _reverse_rows(moved_reversed_board)
+    elif action == ACTION_UP:
+        transposed_board = _transpose(board)
+        moved_transposed_board, score_gain = _move_left(transposed_board)
+        moved_board = _transpose(moved_transposed_board)
+    else:
+        transposed_board = _transpose(board)
+        reversed_board = _reverse_rows(transposed_board)
+        moved_reversed_board, score_gain = _move_left(reversed_board)
+        moved_board = _transpose(_reverse_rows(moved_reversed_board))
+
+    changed = moved_board != board
+    return moved_board, score_gain, changed
+
+
+def get_empty_cells(board: Board) -> list[tuple[int, int]]:
+    validate_board(board)
+    return [
+        (row_index, column_index)
+        for row_index, row in enumerate(board)
+        for column_index, value in enumerate(row)
+        if value == 0
+    ]
+
+
+def has_empty_cell(board: Board) -> bool:
+    return len(get_empty_cells(board)) > 0
+
+
+def can_move(board: Board) -> bool:
+    validate_board(board)
+
+    if has_empty_cell(board):
+        return True
+
+    size = len(board)
+    for row in range(size):
+        for column in range(size):
+            current = board[row][column]
+            if column + 1 < size and current == board[row][column + 1]:
+                return True
+            if row + 1 < size and current == board[row + 1][column]:
+                return True
+
+    return False
+
+
+def _move_left(board: Board) -> tuple[Board, int]:
+    moved_board: Board = []
+    total_score_gain = 0
+
+    for row in board:
+        moved_row, score_gain = slide_and_merge_row_left(row)
+        moved_board.append(moved_row)
+        total_score_gain += score_gain
+
+    return moved_board, total_score_gain
+
+
+def _reverse_rows(board: Board) -> Board:
+    return [list(reversed(row)) for row in board]
+
+
+def _transpose(board: Board) -> Board:
+    return [list(column) for column in zip(*board)]
