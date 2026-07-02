@@ -86,6 +86,23 @@ Exportar metricas por partida em CSV:
 python evaluate_agents.py --agent heuristic --games 100 --seed 42 --output results/heuristic.csv
 ```
 
+## Google Colab
+
+Notebook inicial de validacao:
+
+```text
+notebooks/2048_ai_colab_validacao.ipynb
+```
+
+Use esse notebook para validar que o Colab consegue:
+
+- clonar o repositorio;
+- instalar o projeto com `pip install -e .`;
+- importar `game2048`;
+- rodar os testes;
+- avaliar os agentes `random` e `heuristic`;
+- exportar metricas em JSON.
+
 ## API base para agente
 
 ```python
