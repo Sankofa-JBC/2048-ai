@@ -14,7 +14,7 @@ from game2048.terminal import clear_terminal, print_board
 
 @dataclass(frozen=True)
 class GameResult:
-    """Summary of one completed random-agent episode."""
+    """Resumo de um episódio concluído pelo agente aleatório."""
 
     score: int
     steps: int
@@ -22,27 +22,27 @@ class GameResult:
 
 
 def main() -> None:
-    """Run one or more complete games using the random baseline agent."""
-    parser = argparse.ArgumentParser(description="Run the random 2048 agent.")
-    parser.add_argument("--games", type=int, default=1, help="number of games to run")
-    parser.add_argument("--seed", type=int, default=None, help="base random seed")
+    """Executa uma ou mais partidas completas usando o agente aleatório de referência."""
+    parser = argparse.ArgumentParser(description="Executa o agente aleatorio de 2048.")
+    parser.add_argument("--games", type=int, default=1, help="numero de partidas")
+    parser.add_argument("--seed", type=int, default=None, help="seed aleatoria base")
     parser.add_argument(
         "--show",
         action="store_true",
-        help="show each move in the terminal",
+        help="mostra cada movimento no terminal",
     )
     parser.add_argument(
         "--delay",
         type=float,
         default=0.05,
-        help="delay between shown moves, in seconds",
+        help="intervalo entre movimentos exibidos, em segundos",
     )
     args = parser.parse_args()
 
     results = []
     for index in range(args.games):
-        # Offset the seed per game so repeated batches are reproducible without
-        # forcing every game in the batch to be identical.
+        # Desloca a seed por partida para que lotes repetidos sejam reproduzíveis
+        # sem forçar todas as partidas do lote a serem idênticas.
         seed = None if args.seed is None else args.seed + index
         result = run_single_game(seed=seed, show=args.show, delay=args.delay)
         results.append(result)
@@ -55,7 +55,7 @@ def main() -> None:
 
 
 def run_single_game(seed: int | None, show: bool, delay: float) -> GameResult:
-    """Play one full episode and return its final statistics."""
+    """Joga um episódio completo e retorna suas estatísticas finais."""
     game = Game2048(seed=seed)
     agent = RandomAgent(seed=seed)
 
@@ -81,7 +81,7 @@ def run_single_game(seed: int | None, show: bool, delay: float) -> GameResult:
 
 
 def print_summary(results: list[GameResult]) -> None:
-    """Print aggregate statistics for a batch of completed games."""
+    """Imprime estatísticas agregadas de um lote de partidas concluídas."""
     if not results:
         print("Nenhum jogo executado.")
         return

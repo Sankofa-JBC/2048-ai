@@ -1,4 +1,4 @@
-"""Constants shared by the 2048 engine and terminal interface."""
+"""Constantes compartilhadas pelo motor do 2048 e pela interface de terminal."""
 
 BOARD_SIZE = 4
 

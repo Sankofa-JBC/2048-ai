@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "game2048-ai"
+version = "0.1.0"
+description = "Motor do jogo 2048 e ferramentas de avaliação de agentes para experimentos de treino de IA."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Joao Batista Conceicao" }
+]
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

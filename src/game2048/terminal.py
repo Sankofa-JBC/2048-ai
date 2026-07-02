@@ -1,4 +1,4 @@
-"""Terminal helpers for lightweight local visualization."""
+"""Funções auxiliares de terminal para visualização local leve."""
 
 from __future__ import annotations
 
@@ -6,17 +6,17 @@ import os
 
 
 def clear_terminal() -> None:
-    """Clear the terminal without adding a graphical dependency."""
+    """Limpa o terminal sem adicionar dependência gráfica."""
     os.system("cls" if os.name == "nt" else "clear")
 
 
 def print_board(board: list[list[int]], score: int) -> None:
-    """Print a readable 2048 board using plain terminal characters."""
+    """Imprime um tabuleiro 2048 legível usando apenas caracteres do terminal."""
     print("2048")
     print(f"Score: {score}")
     print()
 
-    # The width grows when large tiles appear, so the board remains aligned.
+    # A largura cresce quando blocos grandes aparecem, mantendo o tabuleiro alinhado.
     cell_width = max(4, len(str(max(max(row) for row in board))))
     horizontal_border = "+" + "+".join("-" * (cell_width + 2) for _ in board) + "+"
 

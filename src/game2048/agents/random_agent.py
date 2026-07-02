@@ -1,7 +1,7 @@
-"""Random baseline agent for 2048.
+"""Agente aleatório de referência para 2048.
 
-The random agent is intentionally simple: it does not learn and does not inspect
-the board. Its job is to give us a weak but useful baseline for future agents.
+O agente aleatório é intencionalmente simples: ele não aprende e não inspeciona
+o tabuleiro. Sua função é fornecer uma base fraca, mas útil, para agentes futuros.
 """
 
 from __future__ import annotations
@@ -9,28 +9,25 @@ from __future__ import annotations
 import random
 from collections.abc import Sequence
 
-from game2048.core import Board, validate_action
+from game2048.agents.base import normalize_available_actions
+from game2048.core import Board
 
 
 class RandomAgent:
-    """Choose uniformly among the valid actions passed by the environment."""
+    """Escolhe uniformemente entre as ações válidas passadas pelo ambiente."""
+
+    name = "random"
 
     def __init__(self, seed: int | None = None) -> None:
-        # A dedicated RNG keeps agent randomness reproducible and isolated from
-        # the game's random tile generation.
+        # Um gerador aleatório dedicado mantém a aleatoriedade do agente
+        # reproduzível e isolada da geração de blocos aleatórios do jogo.
         self._rng = random.Random(seed)
 
     def choose_action(self, board: Board, available_actions: Sequence[int]) -> int:
-        """Return one valid action from the available action list.
+        """Retorna uma ação válida da lista de ações disponíveis.
 
-        The board is part of the method signature so future agents can use the
-        same shape while making smarter decisions from the game state.
+        O tabuleiro faz parte da assinatura do método para que agentes futuros
+        usem o mesmo formato ao tomar decisões melhores a partir do estado do jogo.
         """
-        actions = tuple(available_actions)
-        if not actions:
-            raise ValueError("RandomAgent needs at least one available action.")
-
-        for action in actions:
-            validate_action(action)
-
+        actions = normalize_available_actions(available_actions)
         return self._rng.choice(actions)

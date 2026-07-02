@@ -15,7 +15,7 @@ KEY_TO_ACTION = {
 
 
 def main() -> None:
-    """Run a lightweight human-playable 2048 game in the terminal."""
+    """Executa uma versão leve do 2048 jogável por humanos no terminal."""
     game = Game2048()
     message = "Use W/A/S/D para mover. Q sai."
 

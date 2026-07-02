@@ -1,7 +1,7 @@
-"""Pure 2048 board rules.
+"""Regras puras do tabuleiro 2048.
 
-This module avoids input, output, and randomness so it can be tested directly
-and reused by both a human interface and an AI agent.
+Este módulo evita entrada, saída e aleatoriedade para ser testado diretamente
+e reutilizado tanto por uma interface humana quanto por um agente de IA.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ Board = list[list[int]]
 
 
 def clone_board(board: Board) -> Board:
-    """Return a copy of a board so callers cannot mutate internal state."""
+    """Retorna uma cópia do tabuleiro para proteger o estado interno."""
     return [row[:] for row in board]
 
 
@@ -28,23 +28,23 @@ def empty_board(size: int = 4) -> Board:
 
 def validate_board(board: Board) -> None:
     if not board:
-        raise ValueError("Board must not be empty.")
+        raise ValueError("O tabuleiro não pode estar vazio.")
 
     size = len(board)
     for row in board:
         if len(row) != size:
-            raise ValueError("Board must be square.")
+            raise ValueError("O tabuleiro precisa ser quadrado.")
         if any(value < 0 for value in row):
-            raise ValueError("Board values must be non-negative.")
+            raise ValueError("Os valores do tabuleiro devem ser não negativos.")
 
 
 def validate_action(action: int) -> None:
     if action not in ACTIONS:
-        raise ValueError(f"Invalid action: {action}.")
+        raise ValueError(f"Ação inválida: {action}.")
 
 
 def slide_and_merge_row_left(row: list[int]) -> tuple[list[int], int]:
-    """Slide one row left and merge equal adjacent tiles once per move."""
+    """Desliza uma linha para a esquerda e junta blocos iguais uma vez por movimento."""
     tiles = [value for value in row if value != 0]
     merged: list[int] = []
     score_gain = 0
@@ -68,7 +68,7 @@ def slide_and_merge_row_left(row: list[int]) -> tuple[list[int], int]:
 
 
 def move_board(board: Board, action: int) -> tuple[Board, int, bool]:
-    """Return the board after an action, the score gained, and change status."""
+    """Retorna o tabuleiro após uma ação, a pontuação ganha e se houve mudança."""
     validate_board(board)
     validate_action(action)
 

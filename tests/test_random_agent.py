@@ -6,10 +6,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from game2048 import ACTION_DOWN, ACTION_LEFT, ACTION_RIGHT, ACTION_UP, RandomAgent
+from game2048 import ACTION_DOWN, ACTION_LEFT, ACTION_RIGHT, ACTION_UP, Agent, RandomAgent
 
 
 class RandomAgentTest(unittest.TestCase):
+    def test_agent_matches_base_protocol(self) -> None:
+        agent = RandomAgent(seed=1)
+
+        self.assertIsInstance(agent, Agent)
+
     def test_choose_action_returns_one_available_action(self) -> None:
         agent = RandomAgent(seed=1)
 

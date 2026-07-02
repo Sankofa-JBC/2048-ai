@@ -1,1 +1,1 @@
-"""Test package marker for unittest discovery."""
+"""Marcador de pacote de testes para descoberta pelo unittest."""

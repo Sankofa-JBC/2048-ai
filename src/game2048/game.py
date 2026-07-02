@@ -1,4 +1,4 @@
-"""Stateful 2048 environment for humans and future AI agents."""
+"""Ambiente 2048 com estado para humanos e futuros agentes de IA."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from game2048.core import (
 
 
 class Game2048:
-    """Small environment-style wrapper around the 2048 rules."""
+    """Pequeno wrapper no estilo ambiente em torno das regras do 2048."""
 
     def __init__(self, seed: int | None = None) -> None:
         self._rng = random.Random(seed)
@@ -42,7 +42,7 @@ class Game2048:
         return self.board
 
     def step(self, action: int) -> tuple[Board, int, bool, dict[str, Any]]:
-        """Apply one action and return state, reward, done, and info."""
+        """Aplica uma ação e retorna estado, recompensa, fim e informações."""
         if self.done:
             return self.board, 0, True, {
                 "changed": False,
@@ -67,7 +67,7 @@ class Game2048:
         }
 
     def set_board(self, board: Board, score: int = 0) -> None:
-        """Set a custom board, mainly for tests and future experiments."""
+        """Define um tabuleiro customizado, principalmente para testes e experimentos."""
         validate_board(board)
         self._board = clone_board(board)
         self.score = score
