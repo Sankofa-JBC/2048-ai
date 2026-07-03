@@ -116,6 +116,11 @@ def main() -> None:
         default=None,
         help="device PyTorch, por exemplo cpu ou cuda",
     )
+    parser.add_argument(
+        "--resume-from",
+        default=None,
+        help="checkpoint usado para continuar o treino a partir de pesos anteriores",
+    )
     args = parser.parse_args()
 
     try:
@@ -152,6 +157,7 @@ def main() -> None:
         rolling_window=args.rolling_window,
         double_dqn=not args.no_double_dqn,
         device=args.device,
+        resume_from=args.resume_from,
     )
     result = train_dqn(config)
     final_stats = result.episodes[-1]
@@ -165,6 +171,8 @@ def main() -> None:
     print(f"Checkpoint: {result.save_path}")
     if result.best_save_path is not None:
         print(f"Melhor checkpoint: {result.best_save_path}")
+    if args.resume_from is not None:
+        print(f"Treino retomado de: {args.resume_from}")
 
 
 if __name__ == "__main__":

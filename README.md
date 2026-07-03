@@ -127,11 +127,33 @@ Treino inicial:
 python train_dqn.py --episodes 300 --output models/dqn_2048.pt --best-output models/dqn_2048_best.pt
 ```
 
+Continuar um treino a partir de um checkpoint ja salvo:
+
+```bash
+python train_dqn.py --episodes 1000 --resume-from models/dqn_2048_best.pt --output models/dqn_2048.pt --best-output models/dqn_2048_best.pt
+```
+
+Sem `--resume-from`, o treino cria uma rede nova do zero. Com `--resume-from`,
+ele reutiliza os pesos do checkpoint anterior e continua a numeracao dos
+episodios.
+
 Avaliar checkpoint:
 
 ```bash
 python evaluate_dqn.py models/dqn_2048_best.pt --games 100 --seed 42
 ```
+
+Comparar o DQN treinado com os agentes aleatorio e heuristico:
+
+```bash
+python compare_agents.py --games 100 --seed 42 --dqn-model models/dqn_2048_best.pt
+```
+
+Esse comando imprime uma tabela com media, maior score e menor score de cada
+agente. Ele tambem salva os arquivos:
+
+- `results/final_report.json`: relatorio completo para analise;
+- `results/final_comparison.csv`: tabela agregada para planilha ou Colab.
 
 Ver o modelo treinado jogando no terminal:
 

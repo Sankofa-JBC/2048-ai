@@ -47,6 +47,7 @@ class DQNTrainingConfig:
     rolling_window: int = 50
     double_dqn: bool = True
     device: str | None = None
+    resume_from: str | None = None
 
 
 @dataclass(frozen=True)
@@ -87,10 +88,24 @@ def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
 
     optimizer = torch.optim.Adam(policy_net.parameters(), lr=config.learning_rate)
     loss_fn = nn.SmoothL1Loss()
-    episode_stats: list[TrainingEpisodeStats] = []
-    best_rolling_average_score = float("-inf")
+    episode_stats = _load_resume_checkpoint(
+        config=config,
+        policy_net=policy_net,
+        target_net=target_net,
+        optimizer=optimizer,
+        device=device,
+    )
+    best_rolling_average_score = _best_rolling_average_score(episode_stats)
+    first_new_episode = _next_episode_number(episode_stats)
+    last_new_episode = first_new_episode + config.episodes - 1
+    _ensure_resume_best_checkpoint(
+        config=config,
+        policy_net=policy_net,
+        optimizer=optimizer,
+        episode_stats=episode_stats,
+    )
 
-    for episode in range(1, config.episodes + 1):
+    for episode in range(first_new_episode, last_new_episode + 1):
         epsilon = _epsilon_for_episode(config, episode)
         stats = _train_episode(
             episode=episode,
@@ -115,15 +130,19 @@ def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
                 save_checkpoint(
                     path=config.best_save_path,
                     model=policy_net,
+                    optimizer=optimizer,
                     config=config,
                     episode_stats=tuple(episode_stats),
                 )
 
         if _should_save_periodic_checkpoint(config, episode):
-            checkpoint_path = Path(config.checkpoint_dir or "models") / f"dqn_episode_{episode}.pt"
+            checkpoint_path = (
+                Path(config.checkpoint_dir or "models") / f"dqn_episode_{episode}.pt"
+            )
             save_checkpoint(
                 path=checkpoint_path,
                 model=policy_net,
+                optimizer=optimizer,
                 config=config,
                 episode_stats=tuple(episode_stats),
             )
@@ -133,6 +152,7 @@ def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
     save_checkpoint(
         path=config.save_path,
         model=policy_net,
+        optimizer=optimizer,
         config=config,
         episode_stats=tuple(episode_stats),
     )
@@ -159,22 +179,102 @@ def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
 def save_checkpoint(
     path: str | Path,
     model: DQNModel,
+    optimizer: torch.optim.Optimizer | None,
     config: DQNTrainingConfig,
     episode_stats: tuple[TrainingEpisodeStats, ...],
 ) -> None:
     """Salva pesos do modelo e metadados mínimos de treino."""
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "model_config": {
-                "hidden_size": config.hidden_size,
-            },
-            "training_config": asdict(config),
-            "episodes": [asdict(stats) for stats in episode_stats],
+    checkpoint_data = {
+        "model_state_dict": model.state_dict(),
+        "model_config": {
+            "hidden_size": config.hidden_size,
         },
-        output_path,
+        "training_config": asdict(config),
+        "episodes": [asdict(stats) for stats in episode_stats],
+    }
+    if optimizer is not None:
+        checkpoint_data["optimizer_state_dict"] = optimizer.state_dict()
+
+    torch.save(checkpoint_data, output_path)
+
+
+def _load_resume_checkpoint(
+    config: DQNTrainingConfig,
+    policy_net: DQNModel,
+    target_net: DQNModel,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+) -> list[TrainingEpisodeStats]:
+    """Carrega pesos anteriores quando o treino deve continuar de um checkpoint."""
+    if config.resume_from is None:
+        return []
+
+    checkpoint = torch.load(config.resume_from, map_location=device)
+    policy_net.load_state_dict(checkpoint["model_state_dict"])
+    target_net.load_state_dict(policy_net.state_dict())
+
+    optimizer_state = checkpoint.get("optimizer_state_dict")
+    if optimizer_state is not None:
+        optimizer.load_state_dict(optimizer_state)
+
+    return [
+        _episode_stats_from_dict(item)
+        for item in checkpoint.get("episodes", [])
+    ]
+
+
+def _episode_stats_from_dict(data: dict[str, object]) -> TrainingEpisodeStats:
+    """Reconstroi metricas de episodio salvas em checkpoint ou JSON."""
+    average_loss = data.get("average_loss")
+    return TrainingEpisodeStats(
+        episode=int(data["episode"]),
+        score=int(data["score"]),
+        steps=int(data["steps"]),
+        max_tile=int(data["max_tile"]),
+        epsilon=float(data["epsilon"]),
+        average_loss=None if average_loss is None else float(average_loss),
+        rolling_average_score=float(data["rolling_average_score"]),
+    )
+
+
+def _best_rolling_average_score(
+    episode_stats: list[TrainingEpisodeStats],
+) -> float:
+    """Retorna a melhor media movel ja observada antes de novos episodios."""
+    if not episode_stats:
+        return float("-inf")
+    return max(stats.rolling_average_score for stats in episode_stats)
+
+
+def _next_episode_number(episode_stats: list[TrainingEpisodeStats]) -> int:
+    """Continua a numeracao dos episodios ao retomar treino."""
+    if not episode_stats:
+        return 1
+    return episode_stats[-1].episode + 1
+
+
+def _ensure_resume_best_checkpoint(
+    config: DQNTrainingConfig,
+    policy_net: DQNModel,
+    optimizer: torch.optim.Optimizer,
+    episode_stats: list[TrainingEpisodeStats],
+) -> None:
+    """Garante um best checkpoint inicial quando o treino foi retomado."""
+    if not episode_stats or config.best_save_path is None:
+        return
+
+    best_path = Path(config.best_save_path)
+    if best_path.exists():
+        return
+
+    save_checkpoint(
+        path=best_path,
+        model=policy_net,
+        optimizer=optimizer,
+        config=config,
+        episode_stats=tuple(episode_stats),
     )
 
 
@@ -420,6 +520,8 @@ def _validate_config(config: DQNTrainingConfig) -> None:
         raise ValueError("checkpoint_interval nao pode ser negativo.")
     if config.rolling_window <= 0:
         raise ValueError("rolling_window deve ser maior que zero.")
+    if config.resume_from is not None and not Path(config.resume_from).exists():
+        raise ValueError(f"resume_from nao encontrado: {config.resume_from}")
 
 
 def _with_rolling_average(

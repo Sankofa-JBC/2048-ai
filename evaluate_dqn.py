@@ -52,6 +52,7 @@ def main() -> None:
     print(f"Jogos: {summary['games']}")
     print(f"Score medio: {summary['average_score']:.2f}")
     print(f"Melhor score: {summary['best_score']}")
+    print(f"Pior score: {summary['worst_score']}")
     print(f"Maior bloco: {summary['best_max_tile']}")
     print("Taxa de blocos alcancados")
     for target, rate in report.tile_reach_rates().items():
