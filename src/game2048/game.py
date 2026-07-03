@@ -51,6 +51,7 @@ class Game2048:
             }
 
         moved_board, reward, changed = move_board(self._board, action)
+        board_before_spawn = clone_board(moved_board if changed else self._board)
 
         if changed:
             self._board = moved_board
@@ -64,6 +65,7 @@ class Game2048:
             "changed": changed,
             "score": self.score,
             "steps": self.steps,
+            "board_before_spawn": board_before_spawn,
         }
 
     def set_board(self, board: Board, score: int = 0) -> None:

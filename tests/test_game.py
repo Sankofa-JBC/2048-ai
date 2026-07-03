@@ -37,6 +37,15 @@ class Game2048Test(unittest.TestCase):
         self.assertEqual(reward, 4)
         self.assertEqual(game.score, 4)
         self.assertTrue(info["changed"])
+        self.assertEqual(
+            info["board_before_spawn"],
+            [
+                [4, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+            ],
+        )
         self.assertFalse(done)
 
     def test_unchanged_step_does_not_add_tile_or_step_count(self) -> None:
@@ -57,6 +66,7 @@ class Game2048Test(unittest.TestCase):
         self.assertEqual(reward, 0)
         self.assertEqual(game.steps, 0)
         self.assertFalse(info["changed"])
+        self.assertEqual(info["board_before_spawn"], before)
         self.assertFalse(done)
 
     def test_game_over_board_is_done(self) -> None:

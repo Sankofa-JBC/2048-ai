@@ -56,11 +56,18 @@ def build_final_report_data(
 ) -> dict[str, Any]:
     """Monta o relatorio final usado pelo Colab e por analises locais."""
     materialized_rows = tuple(rows)
+    training_summary = load_training_summary(training_metrics_path)
+    verdict = compare_dqn_against_baselines(materialized_rows)
     return {
         "metadata": metadata or {},
-        "training_summary": load_training_summary(training_metrics_path),
+        "training_summary": training_summary,
         "comparison": [row.to_dict() for row in materialized_rows],
-        "verdict": compare_dqn_against_baselines(materialized_rows),
+        "verdict": verdict,
+        "training_progress": summarize_training_progress(training_summary),
+        "recommendation": build_recommendation(
+            verdict=verdict,
+            training_summary=training_summary,
+        ),
     }
 
 
@@ -229,6 +236,93 @@ def load_training_summary(metrics_path: str | Path | None) -> dict[str, Any] | N
         "best_rolling_average_score": data.get("best_rolling_average_score"),
         "best_save_path": data.get("best_save_path"),
         "config": data.get("config"),
+    }
+
+
+def summarize_training_progress(
+    training_summary: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Resume se o treino parece estar melhorando, parado ou indisponivel."""
+    if training_summary is None:
+        return None
+
+    first_average = training_summary.get("first_rolling_average_score")
+    last_average = training_summary.get("last_rolling_average_score")
+    if first_average is None or last_average is None:
+        return {
+            "status": "insufficient_data",
+            "message": "Nao ha dados suficientes para medir a evolucao do treino.",
+        }
+
+    delta = float(last_average) - float(first_average)
+    if delta > 50.0:
+        return {
+            "status": "improving",
+            "delta_rolling_average_score": delta,
+            "message": "O treino mostra melhora da media movel de score.",
+        }
+
+    if delta < -50.0:
+        return {
+            "status": "regressing",
+            "delta_rolling_average_score": delta,
+            "message": "O treino piorou em relacao ao inicio da media movel.",
+        }
+
+    return {
+        "status": "flat",
+        "delta_rolling_average_score": delta,
+        "message": "O treino esta praticamente estagnado na media movel.",
+    }
+
+
+def build_recommendation(
+    verdict: dict[str, Any],
+    training_summary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Gera uma recomendacao pratica a partir do resultado final do experimento."""
+    progress = summarize_training_progress(training_summary)
+    verdict_status = verdict["status"]
+
+    if verdict_status == "sem_dqn":
+        return {
+            "action": "train_first",
+            "message": "Treine o DQN antes de comparar os agentes.",
+        }
+
+    if verdict_status == "satisfatorio":
+        return {
+            "action": "validate_more",
+            "message": (
+                "Resultado bom. Valide com mais jogos, por exemplo 500 ou 1000, "
+                "para confirmar estabilidade."
+            ),
+        }
+
+    if verdict_status == "aprendizado_inicial":
+        return {
+            "action": "continue_training",
+            "message": (
+                "O DQN ja superou o aleatorio. Continue do checkpoint atual com "
+                "mais 3000 a 5000 episodios."
+            ),
+        }
+
+    if progress is not None and progress["status"] == "improving":
+        return {
+            "action": "continue_training",
+            "message": (
+                "Ainda nao superou o aleatorio, mas ha sinal de melhora. Continue "
+                "do checkpoint atual com mais 3000 a 5000 episodios."
+            ),
+        }
+
+    return {
+        "action": "review_training_setup",
+        "message": (
+            "O DQN ainda nao superou o aleatorio e o treino parece fraco ou "
+            "estagnado. Rode mais episodios ou revise os hiperparametros."
+        ),
     }
 
 

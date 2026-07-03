@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from game2048.cli.evaluate_agents import main
+from game2048.cli.run_experiment import main
 
 
 if __name__ == "__main__":

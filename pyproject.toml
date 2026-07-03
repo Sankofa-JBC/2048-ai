@@ -13,6 +13,13 @@ authors = [
 ]
 dependencies = []
 
+[project.scripts]
+game2048-compare-agents = "game2048.cli.compare_agents:main"
+game2048-evaluate-agents = "game2048.cli.evaluate_agents:main"
+game2048-evaluate-dqn = "game2048.cli.evaluate_dqn:main"
+game2048-run-experiment = "game2048.cli.run_experiment:main"
+game2048-train-dqn = "game2048.cli.train_dqn:main"
+
 [project.optional-dependencies]
 learning = [
   "torch>=2.0"

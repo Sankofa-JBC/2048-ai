@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import random
 import json
-from dataclasses import asdict, dataclass
+import random
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from statistics import mean
+from typing import Any
 
 import torch
 from torch import nn
@@ -14,6 +15,7 @@ from torch import nn
 from game2048.constants import ACTIONS
 from game2048.game import Game2048
 from game2048.learning.dqn_model import DQNModel
+from game2048.learning.reward import RewardShapingWeights, calculate_shaped_reward
 from game2048.learning.replay_memory import ReplayMemory, Transition
 from game2048.learning.state import (
     available_action_mask,
@@ -35,8 +37,8 @@ class DQNTrainingConfig:
     target_update_interval: int = 20
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
-    epsilon_decay_episodes: int = 800
-    hidden_size: int = 128
+    epsilon_decay_episodes: int = 3_000
+    hidden_size: int = 256
     reward_scale: float = 1.0 / 2048.0
     max_steps_per_episode: int = 5_000
     save_path: str = "models/dqn_2048.pt"
@@ -48,6 +50,11 @@ class DQNTrainingConfig:
     double_dqn: bool = True
     device: str | None = None
     resume_from: str | None = None
+    empty_cell_reward_weight: float = 0.02
+    max_tile_reward_weight: float = 0.05
+    corner_max_tile_reward_weight: float = 0.02
+    monotonicity_reward_weight: float = 0.01
+    terminal_penalty: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -80,6 +87,8 @@ def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
     _seed_everything(config.seed)
 
     device = _resolve_device(config.device)
+    resume_checkpoint = _load_checkpoint_data(config.resume_from, device)
+    config = _config_with_resume_model_settings(config, resume_checkpoint)
     memory = ReplayMemory(config.memory_capacity, seed=config.seed)
     policy_net = DQNModel(hidden_size=config.hidden_size).to(device)
     target_net = DQNModel(hidden_size=config.hidden_size).to(device)
@@ -89,11 +98,10 @@ def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
     optimizer = torch.optim.Adam(policy_net.parameters(), lr=config.learning_rate)
     loss_fn = nn.SmoothL1Loss()
     episode_stats = _load_resume_checkpoint(
-        config=config,
+        checkpoint=resume_checkpoint,
         policy_net=policy_net,
         target_net=target_net,
         optimizer=optimizer,
-        device=device,
     )
     best_rolling_average_score = _best_rolling_average_score(episode_stats)
     first_new_episode = _next_episode_number(episode_stats)
@@ -135,7 +143,7 @@ def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
                     episode_stats=tuple(episode_stats),
                 )
 
-        if _should_save_periodic_checkpoint(config, episode):
+        if _should_save_periodic_checkpoint(config, episode, last_new_episode):
             checkpoint_path = (
                 Path(config.checkpoint_dir or "models") / f"dqn_episode_{episode}.pt"
             )
@@ -200,18 +208,64 @@ def save_checkpoint(
     torch.save(checkpoint_data, output_path)
 
 
-def _load_resume_checkpoint(
+def _load_checkpoint_data(
+    checkpoint_path: str | Path | None,
+    device: torch.device,
+) -> dict[str, Any] | None:
+    """Carrega dados brutos do checkpoint quando o treino sera retomado."""
+    if checkpoint_path is None:
+        return None
+    return torch.load(checkpoint_path, map_location=device)
+
+
+def _config_with_resume_model_settings(
     config: DQNTrainingConfig,
+    checkpoint: dict[str, Any] | None,
+) -> DQNTrainingConfig:
+    """Usa a arquitetura salva no checkpoint para evitar erro ao retomar treino."""
+    if checkpoint is None:
+        return config
+
+    checkpoint_hidden_size = _checkpoint_hidden_size(checkpoint)
+    if checkpoint_hidden_size is None or checkpoint_hidden_size == config.hidden_size:
+        return config
+
+    print(
+        "Checkpoint usa "
+        f"hidden_size={checkpoint_hidden_size}; "
+        "ajustando a rede para continuar o treino salvo."
+    )
+    return replace(config, hidden_size=checkpoint_hidden_size)
+
+
+def _checkpoint_hidden_size(checkpoint: dict[str, Any]) -> int | None:
+    """Detecta o tamanho das camadas ocultas salvo ou inferido do checkpoint."""
+    model_config = checkpoint.get("model_config", {})
+    if isinstance(model_config, dict):
+        hidden_size = model_config.get("hidden_size")
+        if hidden_size is not None:
+            return int(hidden_size)
+
+    model_state_dict = checkpoint.get("model_state_dict", {})
+    if not isinstance(model_state_dict, dict):
+        return None
+
+    first_layer_weights = model_state_dict.get("network.0.weight")
+    if first_layer_weights is None:
+        return None
+    return int(first_layer_weights.shape[0])
+
+
+def _load_resume_checkpoint(
+    checkpoint: dict[str, Any] | None,
     policy_net: DQNModel,
     target_net: DQNModel,
     optimizer: torch.optim.Optimizer,
-    device: torch.device,
 ) -> list[TrainingEpisodeStats]:
     """Carrega pesos anteriores quando o treino deve continuar de um checkpoint."""
-    if config.resume_from is None:
+    if checkpoint is None:
         return []
 
-    checkpoint = torch.load(config.resume_from, map_location=device)
     policy_net.load_state_dict(checkpoint["model_state_dict"])
     target_net.load_state_dict(policy_net.state_dict())
 
@@ -293,13 +347,15 @@ def _train_episode(
     game = Game2048(seed=config.seed + episode)
     rng = random.Random(config.seed + episode)
     losses: list[float] = []
+    reward_weights = _reward_shaping_weights(config)
 
     while not game.done and game.steps < config.max_steps_per_episode:
         available_actions = game.available_actions()
         if not available_actions:
             break
 
-        state = board_to_features(game.board)
+        board_before_action = game.board
+        state = board_to_features(board_before_action)
         action = _choose_training_action(
             board_features=state,
             available_actions=available_actions,
@@ -308,13 +364,21 @@ def _train_episode(
             device=device,
             rng=rng,
         )
-        next_board, reward, done, _ = game.step(action)
+        next_board, reward, done, info = game.step(action)
+        board_after_move = info["board_before_spawn"]
+        shaped_reward = calculate_shaped_reward(
+            board_before_action=board_before_action,
+            board_after_move=board_after_move,
+            merge_reward=reward,
+            done=done,
+            weights=reward_weights,
+        )
         next_available_actions = tuple(game.available_actions()) if not done else ()
         memory.push(
             Transition(
                 state=state,
                 action=action,
-                reward=reward * config.reward_scale,
+                reward=shaped_reward,
                 next_state=board_to_features(next_board),
                 done=done,
                 next_available_actions=next_available_actions,
@@ -522,6 +586,16 @@ def _validate_config(config: DQNTrainingConfig) -> None:
         raise ValueError("rolling_window deve ser maior que zero.")
     if config.resume_from is not None and not Path(config.resume_from).exists():
         raise ValueError(f"resume_from nao encontrado: {config.resume_from}")
+    if config.empty_cell_reward_weight < 0.0:
+        raise ValueError("empty_cell_reward_weight nao pode ser negativo.")
+    if config.max_tile_reward_weight < 0.0:
+        raise ValueError("max_tile_reward_weight nao pode ser negativo.")
+    if config.corner_max_tile_reward_weight < 0.0:
+        raise ValueError("corner_max_tile_reward_weight nao pode ser negativo.")
+    if config.monotonicity_reward_weight < 0.0:
+        raise ValueError("monotonicity_reward_weight nao pode ser negativo.")
+    if config.terminal_penalty < 0.0:
+        raise ValueError("terminal_penalty nao pode ser negativo.")
 
 
 def _with_rolling_average(
@@ -551,13 +625,14 @@ def _with_rolling_average(
 def _should_save_periodic_checkpoint(
     config: DQNTrainingConfig,
     episode: int,
+    last_episode: int,
 ) -> bool:
     """Indica se um checkpoint intermediario deve ser salvo."""
     return (
         config.checkpoint_dir is not None
         and config.checkpoint_interval > 0
         and episode % config.checkpoint_interval == 0
-        and episode != config.episodes
+        and episode != last_episode
     )
 
 
@@ -575,4 +650,16 @@ def _print_progress(episode_stats: list[TrainingEpisodeStats]) -> None:
         f"maior_bloco={latest.max_tile} "
         f"epsilon={latest.epsilon:.3f} "
         f"loss={loss_text}"
+    )
+
+
+def _reward_shaping_weights(config: DQNTrainingConfig) -> RewardShapingWeights:
+    """Converte a configuracao de treino nos pesos usados pelo reward shaping."""
+    return RewardShapingWeights(
+        merge_scale=config.reward_scale,
+        empty_cell_weight=config.empty_cell_reward_weight,
+        max_tile_weight=config.max_tile_reward_weight,
+        corner_max_tile_weight=config.corner_max_tile_reward_weight,
+        monotonicity_weight=config.monotonicity_reward_weight,
+        terminal_penalty=config.terminal_penalty,
     )

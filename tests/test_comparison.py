@@ -13,9 +13,11 @@ from game2048.comparison import (
     AgentComparisonRow,
     build_comparison_rows,
     build_final_report_data,
+    build_recommendation,
     compare_dqn_against_baselines,
     format_comparison_table,
     load_training_summary,
+    summarize_training_progress,
     write_comparison_csv,
     write_final_report,
 )
@@ -141,6 +143,67 @@ class ComparisonTest(unittest.TestCase):
 
         self.assertEqual(data["metadata"]["seed"], 42)
         self.assertEqual(data["comparison"][0]["agent_name"], "dqn")
+
+    def test_summarize_training_progress_detects_improvement(self) -> None:
+        progress = summarize_training_progress(
+            {
+                "first_rolling_average_score": 100.0,
+                "last_rolling_average_score": 220.0,
+            }
+        )
+
+        self.assertEqual(progress["status"], "improving")
+
+    def test_build_recommendation_suggests_continue_when_improving(self) -> None:
+        recommendation = build_recommendation(
+            verdict={
+                "status": "nao_satisfatorio",
+                "message": "x",
+            },
+            training_summary={
+                "first_rolling_average_score": 100.0,
+                "last_rolling_average_score": 220.0,
+            },
+        )
+
+        self.assertEqual(recommendation["action"], "continue_training")
+
+    def test_write_final_report_exports_recommendation_and_progress(self) -> None:
+        rows = (AgentComparisonRow("dqn", 2, 150.0, 200, 100, 50.0, 128),)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            metrics_path = Path(temporary_directory) / "metrics.json"
+            output_path = Path(temporary_directory) / "final_report.json"
+            metrics_path.write_text(
+                json.dumps(
+                    {
+                        "best_rolling_average_score": 180.0,
+                        "best_save_path": "models/best.pt",
+                        "config": {"episodes": 2},
+                        "episodes": [
+                            {
+                                "score": 100,
+                                "rolling_average_score": 100.0,
+                            },
+                            {
+                                "score": 200,
+                                "rolling_average_score": 180.0,
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            write_final_report(
+                rows=rows,
+                output_path=output_path,
+                training_metrics_path=metrics_path,
+            )
+            data = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(data["training_progress"]["status"], "improving")
+        self.assertIn("message", data["recommendation"])
 
 
 def _make_report(agent_name: str, scores: list[int]) -> EvaluationReport:
