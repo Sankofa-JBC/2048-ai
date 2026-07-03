@@ -6,6 +6,8 @@ dist/
 results/
 models/*.pt
 models/*.pth
+models/**/*.pt
+models/**/*.pth
 !models/.gitkeep
 .pytest_cache/
 .coverage

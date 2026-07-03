@@ -121,16 +121,22 @@ No Colab, depois de instalar o projeto com dependencias de aprendizagem:
 pip install -e ".[learning]"
 ```
 
-Treino curto:
+Treino inicial:
 
 ```bash
-python train_dqn.py --episodes 50 --batch-size 32 --min-replay-size 100 --output models/dqn_smoke.pt
+python train_dqn.py --episodes 300 --output models/dqn_2048.pt --best-output models/dqn_2048_best.pt
 ```
 
 Avaliar checkpoint:
 
 ```bash
-python evaluate_dqn.py models/dqn_smoke.pt --games 20 --seed 42
+python evaluate_dqn.py models/dqn_2048_best.pt --games 100 --seed 42
+```
+
+Ver o modelo treinado jogando no terminal:
+
+```bash
+python play_trained_agent.py models/dqn_2048_best.pt --delay 0.08
 ```
 
 ## API base para agente

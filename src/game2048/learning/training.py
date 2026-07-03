@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from statistics import mean
@@ -39,6 +40,12 @@ class DQNTrainingConfig:
     reward_scale: float = 1.0 / 2048.0
     max_steps_per_episode: int = 5_000
     save_path: str = "models/dqn_2048.pt"
+    best_save_path: str | None = "models/dqn_2048_best.pt"
+    metrics_path: str | None = "results/dqn_training_metrics.json"
+    checkpoint_dir: str | None = "models/checkpoints"
+    checkpoint_interval: int = 100
+    rolling_window: int = 50
+    double_dqn: bool = True
     device: str | None = None
 
 
@@ -52,6 +59,7 @@ class TrainingEpisodeStats:
     max_tile: int
     epsilon: float
     average_loss: float | None
+    rolling_average_score: float
 
 
 @dataclass(frozen=True)
@@ -61,6 +69,8 @@ class TrainingResult:
     config: DQNTrainingConfig
     episodes: tuple[TrainingEpisodeStats, ...]
     save_path: str
+    best_save_path: str | None
+    best_rolling_average_score: float
 
 
 def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
@@ -78,6 +88,7 @@ def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
     optimizer = torch.optim.Adam(policy_net.parameters(), lr=config.learning_rate)
     loss_fn = nn.SmoothL1Loss()
     episode_stats: list[TrainingEpisodeStats] = []
+    best_rolling_average_score = float("-inf")
 
     for episode in range(1, config.episodes + 1):
         epsilon = _epsilon_for_episode(config, episode)
@@ -92,10 +103,30 @@ def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
             config=config,
             device=device,
         )
-        episode_stats.append(stats)
+        episode_stats.append(_with_rolling_average(stats, episode_stats, config))
 
         if episode % config.target_update_interval == 0:
             target_net.load_state_dict(policy_net.state_dict())
+
+        latest_stats = episode_stats[-1]
+        if latest_stats.rolling_average_score > best_rolling_average_score:
+            best_rolling_average_score = latest_stats.rolling_average_score
+            if config.best_save_path is not None:
+                save_checkpoint(
+                    path=config.best_save_path,
+                    model=policy_net,
+                    config=config,
+                    episode_stats=tuple(episode_stats),
+                )
+
+        if _should_save_periodic_checkpoint(config, episode):
+            checkpoint_path = Path(config.checkpoint_dir or "models") / f"dqn_episode_{episode}.pt"
+            save_checkpoint(
+                path=checkpoint_path,
+                model=policy_net,
+                config=config,
+                episode_stats=tuple(episode_stats),
+            )
 
         _print_progress(episode_stats)
 
@@ -105,10 +136,23 @@ def train_dqn(config: DQNTrainingConfig) -> TrainingResult:
         config=config,
         episode_stats=tuple(episode_stats),
     )
+    if config.metrics_path is not None:
+        save_training_metrics(
+            path=config.metrics_path,
+            result=TrainingResult(
+                config=config,
+                episodes=tuple(episode_stats),
+                save_path=config.save_path,
+                best_save_path=config.best_save_path,
+                best_rolling_average_score=best_rolling_average_score,
+            ),
+        )
     return TrainingResult(
         config=config,
         episodes=tuple(episode_stats),
         save_path=config.save_path,
+        best_save_path=config.best_save_path,
+        best_rolling_average_score=best_rolling_average_score,
     )
 
 
@@ -197,6 +241,27 @@ def _train_episode(
         max_tile=max(max(row) for row in game.board),
         epsilon=epsilon,
         average_loss=average_loss,
+        rolling_average_score=float(game.score),
+    )
+
+
+def save_training_metrics(path: str | Path, result: TrainingResult) -> None:
+    """Salva o historico de treino em JSON para analise no Colab."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(
+            {
+                "config": asdict(result.config),
+                "save_path": result.save_path,
+                "best_save_path": result.best_save_path,
+                "best_rolling_average_score": result.best_rolling_average_score,
+                "episodes": [asdict(stats) for stats in result.episodes],
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
     )
 
 
@@ -273,11 +338,32 @@ def _optimize_model(
     current_q_values = policy_net(states).gather(1, actions).squeeze(1)
 
     with torch.no_grad():
-        next_q_values = target_net(next_states)
-        masked_next_q_values = next_q_values.masked_fill(~next_action_masks, -1_000_000_000.0)
         has_next_action = next_action_masks.any(dim=1) & ~dones
         max_next_q_values = torch.zeros(config.batch_size, dtype=torch.float32, device=device)
-        max_next_q_values[has_next_action] = masked_next_q_values[has_next_action].max(dim=1).values
+
+        if config.double_dqn:
+            policy_next_q_values = policy_net(next_states)
+            masked_policy_next_q_values = policy_next_q_values.masked_fill(
+                ~next_action_masks,
+                -1_000_000_000.0,
+            )
+            best_next_actions = masked_policy_next_q_values.argmax(dim=1, keepdim=True)
+            target_next_q_values = target_net(next_states)
+            selected_target_q_values = target_next_q_values.gather(
+                1,
+                best_next_actions,
+            ).squeeze(1)
+            max_next_q_values[has_next_action] = selected_target_q_values[has_next_action]
+        else:
+            next_q_values = target_net(next_states)
+            masked_next_q_values = next_q_values.masked_fill(
+                ~next_action_masks,
+                -1_000_000_000.0,
+            )
+            max_next_q_values[has_next_action] = (
+                masked_next_q_values[has_next_action].max(dim=1).values
+            )
+
         expected_q_values = rewards + config.gamma * max_next_q_values
 
     loss = loss_fn(current_q_values, expected_q_values)
@@ -328,6 +414,49 @@ def _validate_config(config: DQNTrainingConfig) -> None:
         raise ValueError("learning_rate deve ser maior que zero.")
     if config.reward_scale <= 0.0:
         raise ValueError("reward_scale deve ser maior que zero.")
+    if config.target_update_interval <= 0:
+        raise ValueError("target_update_interval deve ser maior que zero.")
+    if config.checkpoint_interval < 0:
+        raise ValueError("checkpoint_interval nao pode ser negativo.")
+    if config.rolling_window <= 0:
+        raise ValueError("rolling_window deve ser maior que zero.")
+
+
+def _with_rolling_average(
+    stats: TrainingEpisodeStats,
+    previous_stats: list[TrainingEpisodeStats],
+    config: DQNTrainingConfig,
+) -> TrainingEpisodeStats:
+    """Atualiza a metrica de media movel do score."""
+    previous_window_size = max(0, config.rolling_window - 1)
+    scores = (
+        [item.score for item in previous_stats[-previous_window_size:]]
+        if previous_window_size
+        else []
+    )
+    scores.append(stats.score)
+    return TrainingEpisodeStats(
+        episode=stats.episode,
+        score=stats.score,
+        steps=stats.steps,
+        max_tile=stats.max_tile,
+        epsilon=stats.epsilon,
+        average_loss=stats.average_loss,
+        rolling_average_score=mean(scores),
+    )
+
+
+def _should_save_periodic_checkpoint(
+    config: DQNTrainingConfig,
+    episode: int,
+) -> bool:
+    """Indica se um checkpoint intermediario deve ser salvo."""
+    return (
+        config.checkpoint_dir is not None
+        and config.checkpoint_interval > 0
+        and episode % config.checkpoint_interval == 0
+        and episode != config.episodes
+    )
 
 
 def _print_progress(episode_stats: list[TrainingEpisodeStats]) -> None:
@@ -336,13 +465,11 @@ def _print_progress(episode_stats: list[TrainingEpisodeStats]) -> None:
     if latest.episode != 1 and latest.episode % 10 != 0:
         return
 
-    recent = episode_stats[-20:]
-    average_score = mean(stats.score for stats in recent)
     loss_text = "n/a" if latest.average_loss is None else f"{latest.average_loss:.4f}"
     print(
         f"episodio={latest.episode} "
         f"score={latest.score} "
-        f"media20={average_score:.1f} "
+        f"media_movel={latest.rolling_average_score:.1f} "
         f"maior_bloco={latest.max_tile} "
         f"epsilon={latest.epsilon:.3f} "
         f"loss={loss_text}"
