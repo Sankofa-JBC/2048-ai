@@ -13,5 +13,10 @@ authors = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+learning = [
+  "torch>=2.0"
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]

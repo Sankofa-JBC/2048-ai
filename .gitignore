@@ -3,6 +3,10 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+results/
+models/*.pt
+models/*.pth
+!models/.gitkeep
 .pytest_cache/
 .coverage
 htmlcov/

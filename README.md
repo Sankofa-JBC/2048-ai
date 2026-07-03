@@ -103,6 +103,36 @@ Use esse notebook para validar que o Colab consegue:
 - avaliar os agentes `random` e `heuristic`;
 - exportar metricas em JSON.
 
+Notebook inicial de treino DQN:
+
+```text
+notebooks/2048_ai_dqn_training.ipynb
+```
+
+Esse notebook faz um treino curto de validacao, salva um checkpoint em
+`models/dqn_smoke.pt` e avalia o agente treinado. O primeiro treino nao tem
+objetivo de jogar bem ainda; ele valida que o pipeline de aprendizagem funciona.
+
+## Treinar DQN
+
+No Colab, depois de instalar o projeto com dependencias de aprendizagem:
+
+```bash
+pip install -e ".[learning]"
+```
+
+Treino curto:
+
+```bash
+python train_dqn.py --episodes 50 --batch-size 32 --min-replay-size 100 --output models/dqn_smoke.pt
+```
+
+Avaliar checkpoint:
+
+```bash
+python evaluate_dqn.py models/dqn_smoke.pt --games 20 --seed 42
+```
+
 ## API base para agente
 
 ```python
